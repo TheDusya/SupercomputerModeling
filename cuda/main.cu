@@ -260,7 +260,7 @@ int main(int argc, char *argv[]) {
         if (t == 1) init.start();
         if (t == 2) iters.start();
         cuda_set <<<blocks, threads>>> (dev_base, arr_at(dev_to_send, t, buf_size*6), dev_to_recv, dev_data, t, is_beginning, is_end);
-    
+
         cudaDeviceSynchronize();
         for (int i = 0; i< 6; i++)
             with_check(cudaMemcpy(to_send[i + sh], arr_at(dev_to_send, t, buf_size*6)+i*buf_size, buf_size*sizeof(double), cudaMemcpyDeviceToHost), "to_send");
@@ -297,13 +297,15 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < 6; i++)
             with_check(cudaMemcpy(arr_at(dev_to_recv, t, buf_size*6)+i*buf_size, to_recv[i + sh], buf_size*sizeof(double), cudaMemcpyHostToDevice), "to_recv");
         gpu.stop();
-        cudaDeviceSynchronize();
         if (t > 2) {
+            cudaDeviceSynchronize();
             cuda_diff <<<blocks, threads>>> (arr_at(dev_base, t, base_size), dev_data, t, (double*)dev_results+t);
             double my_max = 0;
+            cudaDeviceSynchronize();
             gpu.start();
-            cudaMemcpy(&my_max, (double*)dev_results+t, sizeof(double), cudaMemcpyDeviceToHost); 
+            with_check(cudaMemcpy(&my_max, (double*)dev_results+t, sizeof(double), cudaMemcpyDeviceToHost), "my max"); 
             gpu.stop();
+            cout << "my max - " << my_max << endl;
             MPI_Reduce(&my_max, (double*)results+t, 1, MPI_DOUBLE, MPI_MAX, 0, COMM_CART);
         }
         cudaDeviceSynchronize();
@@ -323,8 +325,6 @@ int main(int argc, char *argv[]) {
     free(data.N);
     free(data.h);
     free(data.base_vals);
-    free(results);
-    MPI_Finalize();
     finish.stop();
     common.stop();
     if (myid == 0) {
@@ -337,5 +337,7 @@ int main(int argc, char *argv[]) {
         cout << "Finishing took " << finish.get_time() << " seconds." << endl;
         cout << "Max error = " << scientific << *max_element(results+2, results+(int)ITER) << endl;
     }
+    free(results);
+    MPI_Finalize();
     return 0;
 }
