@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
     }
     MPI_Comm_rank(COMM_CART, &myid);
     if (old_N % dims[0] != 0 || old_N % dims[1] != 0 || old_N % dims[2] != 0) {
-        cout << "I have no idea what to do :(" << endl;
+        cout << "Not implemented yet" << endl;
         exit(1);
     }
     for (int dim = 0; dim < 3; dim++)
