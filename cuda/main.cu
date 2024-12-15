@@ -12,6 +12,9 @@
 #include <iterator>
 #include "mpi.h"
 #include <vector>
+#include <thrust/device_vector.h>
+#include <thrust/reduce.h>
+#include <thrust/extrema.h>
 using namespace std;
 
 struct Data
@@ -114,7 +117,7 @@ __device__ double atomicMaxDouble(double* result, double val) {
     return __longlong_as_double(old_val);
 }
 
-__global__ void cuda_diff(double* base, Data d, int t, double* result)
+__global__ void cuda_diff(double* base, Data d, int t, double* diff_vec)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     int j = blockDim.y * blockIdx.y + threadIdx.y;
@@ -124,7 +127,7 @@ __global__ void cuda_diff(double* base, Data d, int t, double* result)
     double ideal = Count_analitic(d, t, i, j, k);
     double my = base[k+j*d.big_N+i*d.big_N*d.big_N];
     double abs = my > ideal ? my-ideal : ideal-my;
-    *result = atomicMaxDouble(result, abs);
+    diff_vec[k+j*d.big_N+i*d.big_N*d.big_N] = abs;
 }
 
 struct Timer {
@@ -253,6 +256,8 @@ int main(int argc, char *argv[]) {
     with_check(cudaMalloc((void**)&dev_results, (int)ITER * sizeof(double)), "malloc results");
     with_check(cudaMemset(dev_results, 0, (int)ITER * sizeof(double)), "memset results");
     
+    thrust::device_vector<double> diff_vec(base_size, 0);
+    double* ptr = thrust::raw_pointer_cast(d_vec.data());
     //main part
     cudaDeviceSynchronize();
     for (int t = 0; t < ITER; t++) {
@@ -299,12 +304,9 @@ int main(int argc, char *argv[]) {
         gpu.stop();
         if (t > 2) {
             cudaDeviceSynchronize();
-            cuda_diff <<<blocks, threads>>> (arr_at(dev_base, t, base_size), dev_data, t, (double*)dev_results+t);
-            double my_max = 0;
+            cuda_diff <<<blocks, threads>>> (arr_at(dev_base, t, base_size), dev_data, t, ptr);
             cudaDeviceSynchronize();
-            gpu.start();
-            with_check(cudaMemcpy(&my_max, (double*)dev_results+t, sizeof(double), cudaMemcpyDeviceToHost), "my max"); 
-            gpu.stop();
+            double my_max = *(thrust::max_element(diff_vec.begin(), diff_vec.end()));
             cout << "my max - " << my_max << endl;
             MPI_Reduce(&my_max, (double*)results+t, 1, MPI_DOUBLE, MPI_MAX, 0, COMM_CART);
         }
