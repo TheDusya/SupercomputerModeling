@@ -1,5 +1,7 @@
 #define _USE_MATH_DEFINES
 #define T 0.0001
+#define L 1.0
+//#define L M_PI
 #define TAU T/20
 #define ITER 20.0
 
@@ -68,9 +70,41 @@ struct Counter {
     }
 };
 
+struct Timer {
+    std::chrono::high_resolution_clock::time_point start_time;
+    std::chrono::milliseconds accumulated_time{0};
+    bool running = false;
+
+    void start() {
+        if (!running) {
+            running = true;
+            start_time = std::chrono::high_resolution_clock::now();
+        }
+    }
+
+    void stop() {
+        if (running) {
+            auto end_time = std::chrono::high_resolution_clock::now();
+            accumulated_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            running = false;
+        }
+    }
+
+    double get_time() {
+        if (running) {
+            auto current_time = std::chrono::high_resolution_clock::now();
+            auto totalTime = accumulated_time + std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+            return (double)totalTime.count()/1000;
+        }
+        return (double)accumulated_time.count()/1000;
+    }
+};
+
 int main(int argc, char const *argv[]) {
     int N;
-    double Lx=1, Ly=1, Lz=1;    
+    double Lx=L, Ly=L, Lz=L;    
+    Timer init, common, iters;
+    common.start();
     if (argc < 2)
         N  = 50;
     else {
@@ -82,43 +116,43 @@ int main(int argc, char const *argv[]) {
             return 1;
         }
     }
-    auto start = chrono::system_clock::now();
+    init.start();
     Counter counter(N, Lx, Ly, Lz);
-
-    for (int t = 0; t < 2; t++)
+    double results[(int)ITER] = { 0 }; 
+    for (int t = 0; t < ITER; t++) {
         for (int i = 0; i <= N; i++)
             for (int j = 0; j <= N; j++)
                 for (int k = 0; k <= N; k++) 
                     if (i == 0 || i == N) 
                         counter.grid.set(t, i, j, k, 0);
-                    else 
+                    else if (t < 2)
                         counter.grid.set(t, i, j, k, counter.Count_u_analitic(t, i, j, k));
-    
-    for (int t = 2; t < ITER; t++) {
-        for (int i = 0; i <= N; i++)
-            for (int j = 0; j <= N; j++)
-                for (int k = 0; k <= N; k++)
-                    if (i == 0 || i == N)
-                        counter.grid.set(t, i, j, k, 0);
                     else
                         counter.grid.set(t, i, j, k, counter.Count_u_from_grid(t, i, j, k));
+        if (t == 1) {
+            init.stop();
+            iters.start();
+        }
+        double overall_max = 0;
+        if (t > 2)
+            for (int i = 1; i <= N-1; i++)
+                for (int j = 0; j <= N; j++)
+                    for (int k = 0; k <= N; k++) {
+                        double my = counter.grid.get(t, i, j, k);
+                        double ideal = counter.Count_u_analitic(t, i, j, k);
+                        double diff = my > ideal ? my-ideal : ideal-my;
+                        if (diff > overall_max)
+                            overall_max = diff; 
+                    }
+        results[t] = overall_max;
     }
+    common.stop();
+    iters.stop();
 
-    double overall_max = 0;
-    for (int t = 0; t < ITER; t++){
-        for (int i = 0; i <= N; i++)
-            for (int j = 0; j <= N; j++)
-                for (int k = 0; k <= N; k++) {
-                    double my = counter.grid.get(t, i, j, k);
-                    double ideal = counter.Count_u_analitic(t, i, j, k);
-                    double diff = my > ideal ? my-ideal : ideal-my;
-                    if (diff > overall_max)
-                        overall_max = diff; 
-                }
-    }
-
-    auto end = chrono::system_clock::now();
-    std::chrono::duration<double> elapsed_seconds = end-start;
-    cout << "Work took " << elapsed_seconds.count() << " seconds, max error - " << scientific << overall_max << endl;
+    cout.precision(4);
+    cout << "Work took " << common.get_time() << " seconds." << endl;
+    cout << "Initialisation took " << init.get_time() << " seconds." << endl;
+    cout << "Iterations took " << iters.get_time() << " seconds." << endl;
+    cout << "Max error = " << scientific << *max_element(results+2, results+(int)ITER) << endl;
     return 0;
 }

@@ -1,5 +1,7 @@
 #define _USE_MATH_DEFINES
 #define T 0.0001
+#define L 1.0
+//#define L M_PI
 #define TAU T/20
 #define ITER 20.0
 
@@ -69,7 +71,7 @@ struct Counter {
 
 int main(int argc, char const *argv[]) {
     int N;
-    double Lx=1, Ly=1, Lz=1; 
+    double Lx=L, Ly=L, Lz=L; 
     if (argc < 2)
         N  = 50;
     else {
@@ -82,23 +84,11 @@ int main(int argc, char const *argv[]) {
         }
     }
     double start, end; 
-    start = omp_get_wtime(); 
     Counter counter(N, Lx, Ly, Lz);
+    double results[(int)ITER] = { 0 }; 
+    start = omp_get_wtime(); 
 
-    #pragma omp parallel
-    #pragma omp for collapse(4)
-    for (int t = 0; t < 2; t++)
-        for (int i = 0; i <= N; i++)
-            for (int j = 0; j <= N; j++)
-                for (int k = 0; k <= N; k++)
-                    if (i == 0 || i == N) 
-                        counter.grid.set(t, i, j, k, 0);
-                    else 
-                        counter.grid.set(t, i, j, k, counter.Count_u_analitic(t, i, j, k));
-
-    #pragma omp barrier
-    
-    for (int t = 2; t < ITER; t++) {
+    for (int t = 0; t < ITER; t++) {
         #pragma omp parallel
         #pragma omp for collapse(3)
         for (int i = 0; i <= N; i++)
@@ -106,28 +96,29 @@ int main(int argc, char const *argv[]) {
                 for (int k = 0; k <= N; k++)
                     if (i == 0 || i == N)
                         counter.grid.set(t, i, j, k, 0);
+                    else if (t < 2)
+                        counter.grid.set(t, i, j, k, counter.Count_u_analitic(t, i, j, k));
                     else
                         counter.grid.set(t, i, j, k, counter.Count_u_from_grid(t, i, j, k));
         #pragma omp barrier
+        double overall_max = 0;
+        if (t > 2) {
+            #pragma omp parallel
+            #pragma omp for collapse(3) reduction(max:overall_max)
+                for (int i = 1; i <= N-1; i++)
+                    for (int j = 0; j <= N; j++)
+                        for (int k = 0; k <= N; k++) {
+                            double my = counter.grid.get(t, i, j, k), ideal = counter.Count_u_analitic(t, i, j, k);
+                            double diff = my > ideal ? my-ideal : ideal-my;
+                            if (diff > overall_max)
+                                overall_max = diff; 
+                        }
+            results[t] = overall_max;
+        }
     }
 
     end = omp_get_wtime(); 
-    double overall_max = 0;
-    #pragma omp parallel
-    {
-        #pragma omp for collapse(4) reduction(max:overall_max)
-        for (int t = 0; t < (int)ITER; t++)
-            for (int i = 0; i <= N; i++)
-                for (int j = 0; j <= N; j++)
-                    for (int k = 0; k <= N; k++) {
-                        double my = counter.grid.get(t, i, j, k), ideal = counter.Count_u_analitic(t, i, j, k);
-                        double diff = my > ideal ? my-ideal : ideal-my;
-                        if (diff > overall_max)
-                            overall_max = diff; 
-                    }
-    }
     cout.precision(3); 
-    cout << "Work took " << end-start << " seconds, max error - " << scientific << overall_max << endl;
-    system("pause");
+    cout << "Work took " << end-start << " seconds, max error - " << scientific << *max_element(results, results+(int)ITER) << endl;
     return 0;
 }
