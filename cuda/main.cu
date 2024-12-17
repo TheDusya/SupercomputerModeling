@@ -14,7 +14,7 @@
 #include <vector>
 #include <thrust/device_vector.h>
 #include <thrust/reduce.h>
-#include <thrust/extrema.h>
+#include <thrust/functional.h> 
 using namespace std;
 
 struct Data
@@ -306,7 +306,7 @@ int main(int argc, char *argv[]) {
             cudaDeviceSynchronize();
             cuda_diff <<<blocks, threads>>> (arr_at(dev_base, t, base_size), dev_data, t, ptr);
             cudaDeviceSynchronize();
-            double my_max = *(thrust::max_element(diff_vec.begin(), diff_vec.end()));
+            double my_max = thrust::reduce(diff_vec.begin(), diff_vec.end(), 0, thrust::maximum<double>());
             cout << "my max - " << my_max << endl;
             MPI_Reduce(&my_max, (double*)results+t, 1, MPI_DOUBLE, MPI_MAX, 0, COMM_CART);
         }
