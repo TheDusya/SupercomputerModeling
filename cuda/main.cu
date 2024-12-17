@@ -1,10 +1,3 @@
-#define _USE_MATH_DEFINES
-#define T 0.0001
-#define L 1.0
-//#define L M_PI
-#define TAU T/20
-#define ITER 20.0
-#define arr_at(arr, t, base_size) (double*)arr+((t)%3)*base_size
 #include <iostream>
 #include <string>
 #include <math.h>
@@ -15,6 +8,15 @@
 #include <thrust/device_vector.h>
 #include <thrust/reduce.h>
 #include <thrust/functional.h> 
+
+#define _USE_MATH_DEFINES
+#define T 0.0001
+#define L 1.0
+//#define L M_PI
+#define TAU T/20
+#define ITER 20.0
+#define arr_at(arr, t, base_size) (double*)arr+((t)%3)*base_size
+
 using namespace std;
 
 struct Data
@@ -255,9 +257,9 @@ int main(int argc, char *argv[]) {
     results = (double*)malloc((int)ITER * sizeof(double));
     with_check(cudaMalloc((void**)&dev_results, (int)ITER * sizeof(double)), "malloc results");
     with_check(cudaMemset(dev_results, 0, (int)ITER * sizeof(double)), "memset results");
-    
-    thrust::device_vector<double> diff_vec(base_size, 0);
-    double* ptr = thrust::raw_pointer_cast(d_vec.data());
+    //thrust::host_vector<double> h_vec(base_size);
+    thrust::device_vector<double> diff_vec(base_size);
+    double* ptr = thrust::raw_pointer_cast(diff_vec.data());
     //main part
     cudaDeviceSynchronize();
     for (int t = 0; t < ITER; t++) {
@@ -306,15 +308,14 @@ int main(int argc, char *argv[]) {
             cudaDeviceSynchronize();
             cuda_diff <<<blocks, threads>>> (arr_at(dev_base, t, base_size), dev_data, t, ptr);
             cudaDeviceSynchronize();
-            double my_max = thrust::reduce(diff_vec.begin(), diff_vec.end(), 0, thrust::maximum<double>());
-            cout << "my max - " << my_max << endl;
+            double my_max = thrust::reduce(diff_vec.begin(), diff_vec.end(), 0.0, thrust::maximum<double>());
+            cout << "max at " <<t << " = " << my_max << endl;
             MPI_Reduce(&my_max, (double*)results+t, 1, MPI_DOUBLE, MPI_MAX, 0, COMM_CART);
         }
         cudaDeviceSynchronize();
     }
     iters.stop();
     finish.start();
-    cudaDeviceReset();
     for (int i = 0; i < 3; i++) 
         free(base[i]);
     for (int i = 0; i < 18; i++) {
@@ -322,11 +323,20 @@ int main(int argc, char *argv[]) {
         free(to_recv[i]);
     }
     free(base);
+    cudaFree(dev_base);
     free(to_send);
+    cudaFree(dev_to_send);
     free(to_recv);
+    cudaFree(dev_to_recv);
     free(data.N);
+    cudaFree(dev_data.N);
     free(data.h);
+    cudaFree(dev_data.h);
     free(data.base_vals);
+    cudaFree(dev_data.base_vals);
+    double result = *max_element(results+2, results+(int)ITER);
+    free(results);
+    cudaFree(dev_results);
     finish.stop();
     common.stop();
     if (myid == 0) {
@@ -337,9 +347,8 @@ int main(int argc, char *argv[]) {
         cout << "GPU data exchanges took " << gpu.get_time() << " seconds." << endl;
         cout << "MPI data exchanges took " << mpi.get_time() << " seconds." << endl;
         cout << "Finishing took " << finish.get_time() << " seconds." << endl;
-        cout << "Max error = " << scientific << *max_element(results+2, results+(int)ITER) << endl;
+        cout << "Max error = " << scientific << result << endl;
     }
-    free(results);
     MPI_Finalize();
     return 0;
 }
